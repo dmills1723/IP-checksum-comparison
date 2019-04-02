@@ -2,9 +2,8 @@
 
 /*          FUNCTION DECLARATIONS           */
 int    processArgs();
-size_t getFilesize( const char *);
 int    defaultSum();
-FILE * openFile();
+void   openFile();
 void   usage();
 
 /*            STATIC CONSTANTS              */
@@ -18,9 +17,3 @@ const char * USAGE = "USAGE: \"./IPchecksum [-h] [-l] [-s checksum strategy] INP
 const char * HELP  = "\t-h: help\n"
                      "\t-l: list checksum strategies\n"
                      "\t-s: specify checksum strategy\n";
-// Size of a page of memory for this system. Initialized in IPChecksum.c.
-size_t pageSize;
-// Size of input file in bytes. Initialized in IPChecksum.c.
-size_t filesize;
-// Pointer to input file.
-FILE * inFile;
