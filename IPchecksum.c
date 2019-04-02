@@ -1,11 +1,9 @@
-#include <stdio.h>      // mmap()
 #include <stdlib.h>     // exit()
 #include <string.h>     // strcmp()
 #include <getopt.h>     // getopt()
 #include <inttypes.h>   // uint16_t
 #include <unistd.h>     // sysconf()
 #include <sys/stat.h>   // stat(), struct stat
-#include <sys/mman.h>   // mmap()
 #include "IPchecksum.h" // sanity checking
 
 /**
@@ -30,21 +28,27 @@ int NUM_STRATEGIES = sizeof( STRATEGIES ) / sizeof( STRATEGIES[ 0 ] );
     @return program's exit status
 */
 int main( int argc, char * argv[] ) {
+    // Pointer to input file.
+    FILE * inFile; 
 
-    // Reads index in STRATEGIES of supplied argument. Exits within getStrategy() 
-    // if command-line arguments don't specify a checksum strategy and filename.
-    int stratIdx = processArgs( argc, argv, inFile);
+    // Pointer to the size of the input file, in bytes.
+    size_t fileSize; 
+
+    // Checks that CL args are valid. Returns index of specified checksum strategy.
+    int stratIdx = processArgs( argc, argv );
 
     // Attemps to open a file from one of the command-line arguments.
-    inFile = openFile( argc, argv );
+    openFile( argc, argv, &inFile, &fileSize );
 
     // Page size, in bytes for the host. Used to read input in multiples of the page size.
-    pageSize = sysconf( _SC_PAGESIZE );
+    size_t pageSize = sysconf( _SC_PAGESIZE );
 
     // Calls function associated with strategy.
+    int checksum = -1;
     switch ( stratIdx ) {
         case 0 :
-            defaultSum( inFile, filesize );
+            checksum = defaultSum( inFile, fileSize, pageSize );
+            printf( "Checksum\n\tDec: %X\n\tHex: %d\n", checksum, checksum );
             break;
         default :
             printf( "Invalid index." );
@@ -59,10 +63,11 @@ int main( int argc, char * argv[] ) {
 
     @param argc: Number of command-line arguments.
     @param argv: String array of command-line arguments
+    TODO
     @return Pointer to opened input file 
 */
-FILE * openFile( int argc, char * argv[] ) {
-    FILE * temp;
+void openFile( int argc, char * argv[], FILE ** inFile, size_t * fileSize ) {
+    // Sets index of where in argv the pathname might be.
     int idx; 
     if ( argc == 2 ) {
         idx = 1;
@@ -73,11 +78,14 @@ FILE * openFile( int argc, char * argv[] ) {
     } 
 
     // Attempts to open file.
-    temp = fopen( argv[ idx ], "rb" );
-    if ( temp == NULL ) {
+    *inFile = fopen( argv[ idx ], "rb" );
+    if ( *inFile == NULL ) 
         usage();
-    }
-    return temp;
+
+    // Calculates size of file.
+    fseek( *inFile, 0L, SEEK_END );
+    *fileSize = ftell( *inFile );
+    rewind( *inFile );
 }
 
 /**
@@ -85,8 +93,6 @@ FILE * openFile( int argc, char * argv[] ) {
 */
 void usage() {
     printf( "%s\n%s\n", USAGE, HELP );
-    if ( inFile != NULL )
-        fclose( inFile );
     exit( 0 );
 }
 
@@ -114,14 +120,12 @@ int processArgs( int argc, char * argv[] ) {
 
             // Selects a strategy from those implemented.
             case 's' :
-                if ( getopt( argc, argv, "f:hls:" ) != -1 ) 
+                if ( option != -1 ) 
                     usage();
 
-                if ( argc == 4 ) {
-                    filesize = getFilesize( argv[ 3 ]);
-                } else {
+                if ( argc != 4 ) 
                     usage();
-                }
+
                 for ( int i = 0; i < NUM_STRATEGIES; i++ ) 
                     if( strcmp( STRATEGIES[ i ], argv[ 2 ] ) == 0 ) 
                         return i;
@@ -137,15 +141,7 @@ int processArgs( int argc, char * argv[] ) {
             // Display's options. Falls through to default.
             case 'h' :
             default :
-                printf( " made it here ") ;
-                // No strategy was specified, but argv[1] might be a valid input
-                // file, so the index of "DEFAULT" in STRATEGIES is returned.
                 if ( argc == 2 ) {
-                    printf( "%s\n", argv[ 1 ] );
-                    inFile = fopen( argv[ 1 ], "rb" );
-                    if ( inFile == NULL )
-                        usage();
-                    filesize = getFilesize( argv[ 1 ]);
                     return 0;
                 } else {
                     usage();
@@ -158,53 +154,39 @@ int processArgs( int argc, char * argv[] ) {
     return 0;
 }
 
-/**
-    Give a path name, returns the file's size in bytes, as a size_t type.
-
-    @param filename Name of file
-    @return size of file, as a size_t
-*/
-size_t getFilesize( const char * filename ) {
-    struct stat st;
-    stat( filename, &st );
-    return st.st_size;
-}
-
 
 /**
     A basic implementation of the checksum algorithm using fread() to
     buffer chunks of data and end-arround-carry on every addition.
 
     @param inFile:   Pointer to the input file.
-    @param filesize: Size of the input file, in bytes
+    @param fileSize: Size of the input file, in bytes
+    TODO
     @return The calculated checksum
 */
-int defaultSum( FILE * inFile, size_t filesize ) {
+int defaultSum( FILE * inFile, size_t fileSize, size_t pageSize ) {
 
     // Determines buffer size used with fread().
-    int    chunkSize = pageSize * 4;
+    int    chunkSize = pageSize;
     char * buffer = malloc( chunkSize * sizeof( char ) );
 
     // True if the file has an odd number of bytes. Needed for handling the last byte.
-    char   isOdd = filesize % 2;
+    char   isOdd = fileSize % 2;
 
     register int checksum = 0x0000;
     size_t bytesRead;
-    if ( inFile == NULL ) {
-        printf( "BAD POINTER!" );
-        usage();
 
-    }
-    
     // Calculates the IP checksum with end-around-carries on each addition.
     while (( bytesRead = fread( buffer, sizeof( char ), chunkSize, inFile )) != 0 ) {
+
+        // Appends a byte of 0s after the last byte if there's an odd number. 
         if ( ( bytesRead < chunkSize ) && isOdd )
             buffer[ bytesRead ] = 0x00;
 
+        // Calculates the checksum
         for ( int offset = 0; offset < bytesRead; offset += 2) {
             unsigned short currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
                                            (uint16_t) (buffer[ offset + 1 ]) );
-            //checksum += currentWord;
             int result = currentWord + checksum;
             checksum = ( result & 0xFFFF ) + (result >> 16);
         }
