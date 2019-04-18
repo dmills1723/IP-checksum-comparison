@@ -15,7 +15,7 @@
     This file defines several implementations of the IP checksum for comparison.
 */
 
-// Number of currently implemented checksumming strategies.
+// Number of currently implemented checksumming strategies. See IPchecksum.h.
 int NUM_STRATEGIES = sizeof( STRATEGIES ) / sizeof( STRATEGIES[ 0 ] );
 
 /**
@@ -43,17 +43,22 @@ int main( int argc, char * argv[] ) {
     // Page size, in bytes for the host. Used to read input in multiples of the page size.
     size_t pageSize = sysconf( _SC_PAGESIZE );
 
-    // Calls function associated with strategy.
+    // Calls checksum function associated with strategy. Prints calculated checksum. 
+    // TODO refactor this to use an array of function pointers.
     int checksum = -1;
     switch ( stratIdx ) {
-        case 0 :
+        case 1 :
             checksum = defaultSum( inFile, fileSize, pageSize );
-            printf( "Checksum\n\tDec: %X\n\tHex: %d\n", checksum, checksum );
+            break;
+        case 2 : 
+            checksum = linuxSum( inFile, (int) fileSize );
             break;
         default :
-            printf( "Invalid index." );
+            printf( "\nInvalid strategy specified.\n\n" );
+            exit( 0 );
             break;
     }
+    printf( "Checksum\n\tDec: %5d\n\tHex: %5X\n", checksum, checksum );
 }
 
 /**
@@ -89,10 +94,10 @@ void openFile( int argc, char * argv[], FILE ** inFile, size_t * fileSize ) {
 }
 
 /**
-    Prints the USAGE and HELP messages specified in IPChecksum.h, then exits.
+    Prints the USAGE and HELP messages defined in IPChecksum.h, then exits.
 */
 void usage() {
-    printf( "%s\n%s\n", USAGE, HELP );
+    printf( "\n%s\n%s\n", USAGE, HELP );
     exit( 0 );
 }
 
@@ -120,37 +125,34 @@ int processArgs( int argc, char * argv[] ) {
 
             // Selects a strategy from those implemented.
             case 's' :
-                if ( option != -1 ) 
+                if ( argc != 4 )
                     usage();
 
-                if ( argc != 4 ) 
+                int strategy = atoi( argv[ 2 ] );
+                if ( strategy > NUM_STRATEGIES )
                     usage();
 
-                for ( int i = 0; i < NUM_STRATEGIES; i++ ) 
-                    if( strcmp( STRATEGIES[ i ], argv[ 2 ] ) == 0 ) 
-                        return i;
+                return strategy;
 
             // Lists strategies to compute the checksum.
             case 'l' :
-                printf( "Available checksum strategies:\n" );
+                printf( "\nAvailable checksum strategies:\n" );
                 for ( int i = 0; i < NUM_STRATEGIES; i++ ) 
-                    printf( "\t%s\n", STRATEGIES[ i ] );
+                    printf( "\t( %d ) %s\n", i + 1, STRATEGIES[ i ] );
+                printf( "\n" );
                 if ( argc != 2 ) 
                     usage();
+                exit( 0 );
 
             // Display's options. Falls through to default.
             case 'h' :
             default :
-                if ( argc == 2 ) {
-                    return 0;
-                } else {
+                if ( argc != 2 )
                     usage();
-                }
                 break;
 
         } // switch
     } // while
-
     return 0;
 }
 
@@ -166,31 +168,85 @@ int processArgs( int argc, char * argv[] ) {
 */
 int defaultSum( FILE * inFile, size_t fileSize, size_t pageSize ) {
 
-    // Determines buffer size used with fread().
-    int    chunkSize = pageSize;
-    char * buffer = malloc( chunkSize * sizeof( char ) );
+    // Reads entire file into a buffer.
+    unsigned char * buffer = calloc( fileSize, sizeof( char ) );
+    fread( buffer, sizeof( char ), fileSize, inFile );
 
-    // True if the file has an odd number of bytes. Needed for handling the last byte.
-    char   isOdd = fileSize % 2;
 
+    // TODO Determine whether checksum needs to be 32 bits.
     register int checksum = 0x0000;
-    size_t bytesRead;
 
-    // Calculates the IP checksum with end-around-carries on each addition.
-    while (( bytesRead = fread( buffer, sizeof( char ), chunkSize, inFile )) != 0 ) {
+    // If the file has an odd number of bytes, a zero byte is appended.
+    if ( fileSize & 1 )
+        buffer[ fileSize ] = 0x00;
 
-        // Appends a byte of 0s after the last byte if there's an odd number. 
-        if ( ( bytesRead < chunkSize ) && isOdd )
-            buffer[ bytesRead ] = 0x00;
-
-        // Calculates the checksum
-        for ( int offset = 0; offset < bytesRead; offset += 2) {
-            unsigned short currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
-                                           (uint16_t) (buffer[ offset + 1 ]) );
-            int result = currentWord + checksum;
-            checksum = ( result & 0xFFFF ) + (result >> 16);
-        }
+    // Calculates the checksum
+    unsigned int result;
+    for ( int offset = 0; offset <= fileSize ; offset += 2) {
+        uint16_t currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
+                                 (uint16_t) (buffer[ offset + 1 ]) );
+        result = currentWord + checksum;
+        checksum = ( result & 0xFFFF ) + (result >> 16);
     }
+
+    free( buffer );
     
     return ~checksum & 0xFFFF;
+}
+
+static inline unsigned short from32to16(unsigned int x)
+{
+    /* add up 16-bit and 16-bit for 16+c bit */
+    x = (x & 0xffff) + (x >> 16);
+
+    /* add up carry.. */
+    x = (x & 0xffff) + (x >> 16);
+    return x;
+}
+
+/**
+    A reference implementation, borrowed from lib/checksum.c in the Linux 
+    kernel source code (version 5.0.8). Some modifications have been made.
+
+    Their implementation adds words in reverse order and then swaps the bytes.
+    ( see section 1B, "Byte Order Independence" in RFC 1071 )
+    Additionally, 32-bit words are summed per iteration.
+    ( see section 1C, "Parallel Summation" in RFC 1071 )
+
+    @param inFile:   Pointer to the input file.
+    @param fileSize: Size of the input file, in bytes
+    @return The calculated checksum
+*/
+int linuxSum( FILE * inFile, int fileSize ) {
+    // Reads entire file into a buffer.
+    unsigned char * buff = calloc( fileSize, sizeof( char ) );
+    fread( buff, sizeof( char ), fileSize, inFile );
+
+    unsigned int result = 0;
+
+    if (fileSize >= 4) {
+        const unsigned char *end = buff + ((unsigned) fileSize & ~3);
+        unsigned int carry = 0;
+        do {
+            unsigned int w = *(unsigned int *) buff;
+            buff += 4;
+            result += carry;
+            result += w; 
+            carry = (w > result);
+        } while (buff < end);
+        result += carry; 
+        result = (result & 0xffff) + (result >> 16);
+    }
+    if (fileSize & 2) {
+        result += *(unsigned short *) buff;
+        buff += 2;
+    }
+    if (fileSize & 1)
+        result += *buff;
+
+    result = from32to16(result);
+
+    result = ((result >> 8) & 0xff) | ((result & 0xff) << 8);
+
+    return ~result & 0xFFFF;
 }
