@@ -1,3 +1,4 @@
+import sys
 
 '''
     @file IPChecksum.py
@@ -34,7 +35,7 @@ def calcChecksum( message ) :
     # If the message has an odd number of bytes, the last byte is padded
     # with 8 zeroes and added as the resultant 16-bit word to the checksum.
     if ( is_odd_length ) :
-        intValueOfWord = message[ msg_len - 1]
+        intValueOfWord = message[ msg_len - 1] << 8
         result = checksum + intValueOfWord
         checksum = ( result & 0xFFFF ) + ( result >> 16 )
         
@@ -46,5 +47,5 @@ def calcChecksum( message ) :
 
     return ~checksum & 0xFFFF
 
-inFile = open("file_huge.txt","rb")
-print( calcChecksum( inFile.read() ) )
+inFile = open( sys.argv[ 1 ],"rb")
+print( hex(calcChecksum( inFile.read() )) )
