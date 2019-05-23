@@ -3,14 +3,18 @@
 /*          FUNCTION DECLARATIONS           */
 int    processArgs();
 int    defaultSum();
-void   openFile();
+int    linuxSum();
+FILE * openFile();
 void   usage();
 
 /*            STATIC CONSTANTS              */
 
 // Available strategies that can be specified for the checksum calculation.
-const char * STRATEGIES[] = { "FREAD_EAC", "DEFERRED_CARRY", "UNWINDING_LOOPS", "MINIMAL_COPYING", "INCREMENTAL_UPDATE" } ; 
-typedef enum { FREAD_EAC, DEFERRED_CARRY, UNWINDING_LOOPS, MINIMAL_COPYING, INCREMENTAL_UPDATE } Strategy ;
+const char * STRATEGIES[] = { 
+    "End around carries.", 
+    "Linux kernel's \"lib/checksum.c\" implementation.", 
+    "Deferred carries" 
+} ; 
 // Terse details about command-line options.
 const char * USAGE = "USAGE: \"./IPchecksum [-h] [-l] [-s checksum strategy] INPUT_FILE\"";
 // Verbose details about command-line options.

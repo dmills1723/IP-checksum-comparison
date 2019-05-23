@@ -15,8 +15,12 @@
     This file defines several implementations of the IP checksum for comparison.
 */
 
-// Number of currently implemented checksumming strategies. See IPchecksum.h.
-int NUM_STRATEGIES = sizeof( STRATEGIES ) / sizeof( STRATEGIES[ 0 ] );
+// Array of function pointers. Stores the implemented checksum strategies.
+int ( * strategies[ 2 ] ) ( unsigned char * buffer, int fileSize ) = 
+    { defaultSum, linuxSum };
+
+// Number of currently implemented checksumming strategies. 
+int NUM_STRATEGIES = sizeof( strategies ) / sizeof( strategies[ 0 ] );
 
 /**
     Main method. Reads command-line arguments. If the arguments specify an
@@ -28,8 +32,6 @@ int NUM_STRATEGIES = sizeof( STRATEGIES ) / sizeof( STRATEGIES[ 0 ] );
     @return program's exit status
 */
 int main( int argc, char * argv[] ) {
-    // Pointer to input file.
-    FILE * inFile; 
 
     // Pointer to the size of the input file, in bytes.
     size_t fileSize; 
@@ -38,44 +40,42 @@ int main( int argc, char * argv[] ) {
     int stratIdx = processArgs( argc, argv );
 
     // Attemps to open a file from one of the command-line arguments.
-    openFile( argc, argv, &inFile, &fileSize );
+    // Stores size of file in bytes in "fileSize".
+    FILE * inFile = openFile( argc, argv, &fileSize );
 
-    // Page size, in bytes for the host. Used to read input in multiples of the page size.
-    size_t pageSize = sysconf( _SC_PAGESIZE );
+    // Reads entire file into a buffer.
+    unsigned char * buffer = calloc( fileSize, sizeof( char ) );
+    fread( buffer, sizeof( char ), fileSize, inFile );
 
-    // Calls checksum function associated with strategy. Prints calculated checksum. 
-    // TODO refactor this to use an array of function pointers.
-    int checksum = -1;
-    switch ( stratIdx ) {
-        case 1 :
-            checksum = defaultSum( inFile, fileSize, pageSize );
-            break;
-        case 2 : 
-            checksum = linuxSum( inFile, (int) fileSize );
-            break;
-        default :
-            printf( "\nInvalid strategy specified.\n\n" );
-            exit( 0 );
-            break;
+    // If an invalid index is given for a strategy, exits with message.
+    if ( stratIdx >= NUM_STRATEGIES ) {
+        printf( "\nInvalid strategy specified.\n\n" );
+        exit( 1 );
     }
+
+    // Calls checksum function for specified strategy. 
+    int checksum = ( *strategies[ stratIdx ] )( buffer, fileSize );
+
+    // Prints calculated checksum. 
     printf( "Checksum\n\tDec: %5d\n\tHex: %5X\n", checksum, checksum );
 }
 
 /**
     Attemps to open a specified input file from the command-line arguments.
-    On a successful open, a FILE pointer is returned. 
-    On failure, the program exits.
+    On a successful open, a FILE pointer is returned and "fileSize" is 
+    determined. On failure, the program exits.
 
     @param argc: Number of command-line arguments.
     @param argv: String array of command-line arguments
-    TODO
     @return Pointer to opened input file 
 */
-void openFile( int argc, char * argv[], FILE ** inFile, size_t * fileSize ) {
+FILE * openFile( int argc, char * argv[], size_t * fileSize ) {
     // Sets index of where in argv the pathname might be.
     int idx; 
+    // If no strategy is specified, filename will be here.
     if ( argc == 2 ) {
         idx = 1;
+    // If a strategy is specified, filename will be in 3rd position.
     } else if ( argc == 4 ) {
         idx = 3;
     } else {
@@ -83,14 +83,16 @@ void openFile( int argc, char * argv[], FILE ** inFile, size_t * fileSize ) {
     } 
 
     // Attempts to open file.
-    *inFile = fopen( argv[ idx ], "rb" );
-    if ( *inFile == NULL ) 
+    FILE * inFile = fopen( argv[ idx ], "rb" );
+    if ( inFile == NULL ) 
         usage();
 
     // Calculates size of file.
-    fseek( *inFile, 0L, SEEK_END );
-    *fileSize = ftell( *inFile );
-    rewind( *inFile );
+    fseek( inFile, 0L, SEEK_END );
+    *fileSize = ftell( inFile );
+    rewind( inFile );
+
+    return inFile;
 }
 
 /**
@@ -110,15 +112,17 @@ void usage() {
 */
 int processArgs( int argc, char * argv[] ) {
 
-    // Bitmap specifying that only 2 or 4 are valid "argc" values.
+    // Bitmask specifying that only 2 or 4 are valid "argc" values 
+    // Note that "0x14" is "0001 0100".
     char validArgCounts = 0x14;
-    char mask = 0x01;
+    //char validArgCounts = 0b00010100;
+    char mask = 1;
     
     // Prints USAGE string and exits if bad number of arguments provided.
     if ( ( ( mask << argc ) & validArgCounts ) == 0 )
         usage();
 
-    // Switches on the specified command-line arguments and proceeds accordingly.
+    // Switches on the command-line arguments and proceeds accordingly.
     int option;
     while (( option = getopt( argc, argv, "f:hls:" )) != -1 ) {
         switch ( option ) {
@@ -134,17 +138,17 @@ int processArgs( int argc, char * argv[] ) {
 
                 return strategy;
 
-            // Lists strategies to compute the checksum.
+            // Lists strategies. 
             case 'l' :
                 printf( "\nAvailable checksum strategies:\n" );
                 for ( int i = 0; i < NUM_STRATEGIES; i++ ) 
-                    printf( "\t( %d ) %s\n", i + 1, STRATEGIES[ i ] );
+                    printf( "\t( %d ) %s\n", i, STRATEGIES[ i ] );
                 printf( "\n" );
                 if ( argc != 2 ) 
                     usage();
                 exit( 0 );
 
-            // Display's options. Falls through to default.
+            // Help message. Falls through to default.
             case 'h' :
             default :
                 if ( argc != 2 )
@@ -161,28 +165,21 @@ int processArgs( int argc, char * argv[] ) {
     A basic implementation of the checksum algorithm using fread() to
     buffer chunks of data and end-arround-carry on every addition.
 
-    @param inFile:   Pointer to the input file.
-    @param fileSize: Size of the input file, in bytes
-    TODO
+    @param  buffer     Data to compute checksum of.
+    @param  bufferSize Number of bytes in "buffer"
     @return The calculated checksum
 */
-int defaultSum( FILE * inFile, size_t fileSize, size_t pageSize ) {
-
-    // Reads entire file into a buffer.
-    unsigned char * buffer = calloc( fileSize, sizeof( char ) );
-    fread( buffer, sizeof( char ), fileSize, inFile );
-
-
+int defaultSum( unsigned char * buffer, int bufferSize ) {
     // TODO Determine whether checksum needs to be 32 bits.
     register int checksum = 0x0000;
 
     // If the file has an odd number of bytes, a zero byte is appended.
-    if ( fileSize & 1 )
-        buffer[ fileSize ] = 0x00;
+    if ( bufferSize & 1 )
+        buffer[ bufferSize ] = 0x00;
 
     // Calculates the checksum
     unsigned int result;
-    for ( int offset = 0; offset <= fileSize ; offset += 2) {
+    for ( int offset = 0; offset <= bufferSize ; offset += 2) {
         uint16_t currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
                                  (uint16_t) (buffer[ offset + 1 ]) );
         result = currentWord + checksum;
@@ -213,40 +210,38 @@ static inline unsigned short from32to16(unsigned int x)
     Additionally, 32-bit words are summed per iteration.
     ( see section 1C, "Parallel Summation" in RFC 1071 )
 
-    @param inFile:   Pointer to the input file.
-    @param fileSize: Size of the input file, in bytes
+    @param  buffer     Data to compute checksum of.
+    @param  bufferSize Number of bytes in "buffer"
     @return The calculated checksum
 */
-int linuxSum( FILE * inFile, int fileSize ) {
-    // Reads entire file into a buffer.
-    unsigned char * buff = calloc( fileSize, sizeof( char ) );
-    fread( buff, sizeof( char ), fileSize, inFile );
-
+int linuxSum( unsigned char * buffer, int bufferSize ) {
     unsigned int result = 0;
 
-    if (fileSize >= 4) {
-        const unsigned char *end = buff + ((unsigned) fileSize & ~3);
+    if (bufferSize >= 4) {
+        const unsigned char *end = buffer + ((unsigned) bufferSize & ~3);
         unsigned int carry = 0;
         do {
-            unsigned int w = *(unsigned int *) buff;
-            buff += 4;
+            unsigned int w = *(unsigned int *) buffer;
+            buffer += 4;
             result += carry;
             result += w; 
             carry = (w > result);
-        } while (buff < end);
+        } while (buffer < end);
         result += carry; 
         result = (result & 0xffff) + (result >> 16);
     }
-    if (fileSize & 2) {
-        result += *(unsigned short *) buff;
-        buff += 2;
+    if (bufferSize & 2) {
+        result += *(unsigned short *) buffer;
+        buffer += 2;
     }
-    if (fileSize & 1)
-        result += *buff;
+    if (bufferSize & 1)
+        result += *buffer;
 
     result = from32to16(result);
-
     result = ((result >> 8) & 0xff) | ((result & 0xff) << 8);
 
     return ~result & 0xFFFF;
 }
+
+//int deferredCarries( FILE *inFile, int fileSize )
+
