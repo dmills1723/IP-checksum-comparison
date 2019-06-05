@@ -10,11 +10,13 @@ comparison, the checksum will be calculated on an input file of sufficient size
 to reveal effects on runtime.
 
 The following strategies for computation are implemented:
-0. Default implementation
+0. Default Implementation
 1. Deferred Carries
 2. Unwinding Loops
 3. Combine with Data Copying
 4. Incremental Update
+5. Map Reduce (multi-threaded - 2A)
+6. Multi-Word Parallel Addition (2C)
 
 The strategies used are recommended in RFC 1071(https://tools.ietf.org/html/rfc1071).
 
