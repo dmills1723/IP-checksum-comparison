@@ -29,10 +29,14 @@ int NUM_STRATEGIES = sizeof( strategies ) / sizeof( strategies[ 0 ] );
     with the result and elapsed time printed.
 */
 int main( int argc, char * argv[] ) {
+    // Valid argcounts are 2-4.
+    if ( argc <= 1 || argc >= 5 )   
+        usage();
 
     // Checks that command-line args are valid. 
     // Returns index of specified checksum strategy.
     int stratIdx = processArgs( argc, argv );
+
 
     // Pointer to the size of the input file, in bytes.
     size_t fileSize; 
@@ -55,23 +59,32 @@ int main( int argc, char * argv[] ) {
     unsigned char * buffer = calloc( fileSize, sizeof( char ) );
     fread( buffer, sizeof( char ), fileSize, inFile );
 
+    if ( stratIdx == TEST_ALL_IDX ) {
+        testAll( buffer, fileSize );
+    }
+
     // If an invalid index is given for a strategy, exits with message.
     if ( stratIdx >= NUM_STRATEGIES ) {
         printf( "\nInvalid strategy specified.\n\n" );
         exit( 1 );
     }
 
+
+    // Calls checksum function for specified strategy with timer.
     clock_t startTime = clock();
-    
-    // Calls checksum function for specified strategy. 
+
     int checksum = ( *strategies[ stratIdx ] )( buffer, fileSize );
 
     clock_t endTime = clock();
+
     double elapsedTime = ( endTime - startTime ) / ( double ) CLOCKS_PER_SEC;
 
     // Prints calculated checksum. 
     printf( "Checksum\n\tDec: %5d\n\tHex: %5X\n", checksum, checksum );
     printf( "Elapsed Time: %.4f\n", elapsedTime );
+
+
+    free( buffer );
 }
 
 /**
@@ -82,20 +95,9 @@ int main( int argc, char * argv[] ) {
     @return Pointer to opened input file 
 */
 FILE * openFile( int argc, char * argv[], size_t * fileSize ) {
-    // Sets index of where in argv the pathname might be.
-    int idx; 
-    // If no strategy is specified, filename will be here.
-    if ( argc == 2 ) {
-        idx = 1;
-    // If a strategy is specified, filename will be in 3rd position.
-    } else if ( argc == 4 ) {
-        idx = 3;
-    } else {
-        usage();
-    } 
 
     // Attempts to open file.
-    FILE * inFile = fopen( argv[ idx ], "rb" );
+    FILE * inFile = fopen( argv[ argc - 1 ], "rb" );
     if ( inFile == NULL ) 
         usage();
 
@@ -123,8 +125,8 @@ void usage() {
 */
 int processArgs( int argc, char * argv[] ) {
 
-    // Bitmask specifying that only 2 or 4 are valid "argc" values 
-    char validArgCounts = 0b00010100;
+    // Bitmask specifying that only 2-4 are valid "argc" values 
+    char validArgCounts = 0b00011100;
     char mask = 1;
     
     // Prints USAGE string and exits if bad number of arguments provided.
@@ -133,7 +135,7 @@ int processArgs( int argc, char * argv[] ) {
 
     // Switches on the command-line arguments and proceeds accordingly.
     int option;
-    while (( option = getopt( argc, argv, "f:hls:" )) != -1 ) {
+    while (( option = getopt( argc, argv, "ahls:" )) != -1 ) {
         switch ( option ) {
 
             // Selects a strategy from those implemented.
@@ -156,6 +158,9 @@ int processArgs( int argc, char * argv[] ) {
                 if ( argc != 2 ) 
                     usage();
                 exit( 0 );
+
+            case 'a' :
+                return TEST_ALL_IDX;
 
             // Help message. Falls through to default.
             case 'h' :
@@ -194,8 +199,6 @@ int defaultSum( unsigned char * buffer, int bufferSize ) {
         checksum = ( result & 0xFFFF ) + (result >> 16);
     }
 
-    free( buffer );
-    
     return ~checksum & 0xFFFF;
 }
 
@@ -294,4 +297,35 @@ int deferredCarries( unsigned char * buffer, int bufferSize ) {
     }
 
     return ~sum & 0xFFFF;
+}
+
+/**
+
+
+*/
+void testAll( unsigned char * buffer, int bufferSize ) {
+    // Prints table header.
+    printf( "     STRATEGY                  ELAPSED TIME (s)\n");
+    printf( "-----------------------------------------------\n");
+
+    // Calculates checksum for each strategy NUM_TEST_RUNS times.
+    for ( int stratIdx = 0; stratIdx < NUM_STRATEGIES; stratIdx++ ) {
+        double totalElapsedTime = 0;
+
+        for ( int run = 0; run < NUM_TEST_RUNS; run++ ) {
+            clock_t startTime = clock();
+            
+            // Calls checksum function for specified strategy. 
+            ( *strategies[ stratIdx ] )( buffer, bufferSize );
+
+            clock_t endTime = clock();
+            double elapsedTime = ( endTime - startTime ) / ( double ) CLOCKS_PER_SEC;
+            totalElapsedTime += elapsedTime;
+        }
+
+        // Prints current strategy's results.
+        printf( "%-35s%.4f\n", STRATEGIES[ stratIdx ], totalElapsedTime / NUM_TEST_RUNS );
+    }
+
+    exit( 0 );
 }
