@@ -4,6 +4,7 @@
 #include <inttypes.h>   // uint16_t
 #include <unistd.h>     // sysconf()
 #include <sys/stat.h>   // stat(), struct stat
+#include <time.h>       // clock()
 #include "IPchecksum.h" // sanity checking
 
 /**
@@ -16,8 +17,8 @@
 */
 
 // Array of function pointers. Stores the implemented checksum strategies.
-int ( * strategies[ 2 ] ) ( unsigned char * buffer, int fileSize ) = 
-    { defaultSum, linuxSum };
+int ( * strategies[ 3 ] ) ( unsigned char * buffer, int fileSize ) = 
+    { &defaultSum, &linuxSum, &deferredCarries };
 
 // Number of currently implemented checksumming strategies. 
 int NUM_STRATEGIES = sizeof( strategies ) / sizeof( strategies[ 0 ] );
@@ -26,24 +27,31 @@ int NUM_STRATEGIES = sizeof( strategies ) / sizeof( strategies[ 0 ] );
     Main method. Reads command-line arguments. If the arguments specify an
     input file and a calculation strategy to use, the checksum is calculated
     with the result and elapsed time printed.
-
-    @param  argc: Number of command-line arguments
-    @param  argv: String array of command-line arguments
-    @return program's exit status
 */
 int main( int argc, char * argv[] ) {
 
+    // Checks that command-line args are valid. 
+    // Returns index of specified checksum strategy.
+    int stratIdx = processArgs( argc, argv );
+
     // Pointer to the size of the input file, in bytes.
     size_t fileSize; 
-
-    // Checks that CL args are valid. Returns index of specified checksum strategy.
-    int stratIdx = processArgs( argc, argv );
 
     // Attemps to open a file from one of the command-line arguments.
     // Stores size of file in bytes in "fileSize".
     FILE * inFile = openFile( argc, argv, &fileSize );
 
-    // Reads entire file into a buffer.
+    // If the file has odd number of bytes, "fileSize" is incremented so the
+    // buffer is allocated an even number of bytes. 
+    if ( fileSize & 1 )
+        fileSize++;
+
+    // Reads entire file into "buffer". The buffer is initialized with all 0s.
+    // If "fileSize" was originally even, the file will completely occupy the 
+    // buffer. If "fileSize" was originally odd (and then incremented 1), the
+    // file will occupy all but the least byte, which will have a value of 0.
+    // The appending of a zero-byte to odd-sized checksum payloads is part of 
+    // the calculation defined in RFC 1071.
     unsigned char * buffer = calloc( fileSize, sizeof( char ) );
     fread( buffer, sizeof( char ), fileSize, inFile );
 
@@ -53,11 +61,17 @@ int main( int argc, char * argv[] ) {
         exit( 1 );
     }
 
+    clock_t startTime = clock();
+    
     // Calls checksum function for specified strategy. 
     int checksum = ( *strategies[ stratIdx ] )( buffer, fileSize );
 
+    clock_t endTime = clock();
+    double elapsedTime = ( endTime - startTime ) / ( double ) CLOCKS_PER_SEC;
+
     // Prints calculated checksum. 
     printf( "Checksum\n\tDec: %5d\n\tHex: %5X\n", checksum, checksum );
+    printf( "Elapsed Time: %.4f\n", elapsedTime );
 }
 
 /**
@@ -65,8 +79,6 @@ int main( int argc, char * argv[] ) {
     On a successful open, a FILE pointer is returned and "fileSize" is 
     determined. On failure, the program exits.
 
-    @param argc: Number of command-line arguments.
-    @param argv: String array of command-line arguments
     @return Pointer to opened input file 
 */
 FILE * openFile( int argc, char * argv[], size_t * fileSize ) {
@@ -104,18 +116,15 @@ void usage() {
 }
 
 /**
-    Processes the command-line arguments. If a strategy and input file were specified,
-    the index of the associated strategy in STRATEGIES[] is returned.
+    Processes the command-line arguments. If a strategy and input file were 
+    specified, the index of the associated strategy in STRATEGIES[] is returned.
 
-    @param argc: Number of command-line arguments
-    @param argv: String array of command-line arguments
+    @return Index in "strategies" of desired checksum strategy
 */
 int processArgs( int argc, char * argv[] ) {
 
     // Bitmask specifying that only 2 or 4 are valid "argc" values 
-    // Note that "0x14" is "0001 0100".
-    char validArgCounts = 0x14;
-    //char validArgCounts = 0b00010100;
+    char validArgCounts = 0b00010100;
     char mask = 1;
     
     // Prints USAGE string and exits if bad number of arguments provided.
@@ -157,6 +166,8 @@ int processArgs( int argc, char * argv[] ) {
 
         } // switch
     } // while
+
+    // Default option for no supplied arguments other than an input file.
     return 0;
 }
 
@@ -171,15 +182,12 @@ int processArgs( int argc, char * argv[] ) {
 */
 int defaultSum( unsigned char * buffer, int bufferSize ) {
     // TODO Determine whether checksum needs to be 32 bits.
-    register int checksum = 0x0000;
-
-    // If the file has an odd number of bytes, a zero byte is appended.
-    if ( bufferSize & 1 )
-        buffer[ bufferSize ] = 0x00;
+    register int checksum = 0;
 
     // Calculates the checksum
     unsigned int result;
     for ( int offset = 0; offset <= bufferSize ; offset += 2) {
+        // TODO simplify this
         uint16_t currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
                                  (uint16_t) (buffer[ offset + 1 ]) );
         result = currentWord + checksum;
@@ -191,6 +199,14 @@ int defaultSum( unsigned char * buffer, int bufferSize ) {
     return ~checksum & 0xFFFF;
 }
 
+/**
+    Helper method used in linuxSum(). In the Linux kernel implementation, 
+    16-bit words are added two at a time (two per 32-bit int). This function
+    sums the left and right 16-bit words and then the sum's resultant carry.
+
+    @param  x 32-bit intermediate checksum
+    @return Final 16-bit checksum
+*/
 static inline unsigned short from32to16(unsigned int x)
 {
     /* add up 16-bit and 16-bit for 16+c bit */
@@ -207,7 +223,8 @@ static inline unsigned short from32to16(unsigned int x)
 
     Their implementation adds words in reverse order and then swaps the bytes.
     ( see section 1B, "Byte Order Independence" in RFC 1071 )
-    Additionally, 32-bit words are summed per iteration.
+    Additionally, 32-bit words are summed per iteration. i.e. Two 16-bit words,
+    side-by-side in a 32-bit int, are added to the sum.
     ( see section 1C, "Parallel Summation" in RFC 1071 )
 
     @param  buffer     Data to compute checksum of.
@@ -218,8 +235,11 @@ int linuxSum( unsigned char * buffer, int bufferSize ) {
     unsigned int result = 0;
 
     if (bufferSize >= 4) {
+        // Marks the offset into the buffer of the last 4 bytes. 
         const unsigned char *end = buffer + ((unsigned) bufferSize & ~3);
         unsigned int carry = 0;
+
+        // Adds 32-bits at a time, storing overflows in "carry".
         do {
             unsigned int w = *(unsigned int *) buffer;
             buffer += 4;
@@ -227,13 +247,17 @@ int linuxSum( unsigned char * buffer, int bufferSize ) {
             result += w; 
             carry = (w > result);
         } while (buffer < end);
+
+        // Adds the accumulated carrys back into the sum.
         result += carry; 
         result = (result & 0xffff) + (result >> 16);
     }
+
     if (bufferSize & 2) {
         result += *(unsigned short *) buffer;
         buffer += 2;
     }
+
     if (bufferSize & 1)
         result += *buffer;
 
@@ -243,5 +267,31 @@ int linuxSum( unsigned char * buffer, int bufferSize ) {
     return ~result & 0xFFFF;
 }
 
-//int deferredCarries( FILE *inFile, int fileSize )
+/**
+    Computes the checksum but defers the end-around carries until all words
+    have been summed. The addition overflows accumulate in the high-order 
+    bits of "sum" and are added at the end. This halves the number of additions 
+    per iteration, but doubles the total number of iterations, compared to the 
+    Parallel Summation strategy described in section 1C of RFC 1071, used 
+    in linuxSum().
 
+    @param  buffer     Data to compute checksum of.
+    @param  bufferSize Number of bytes in "buffer"
+    @return The calculated checksum
+*/
+int deferredCarries( unsigned char * buffer, int bufferSize ) {
+    register int sum = 0;
+
+    // Iterates over buffer by 16-bit words, adding to checksum.
+    for ( int offset = 0; offset < bufferSize; offset += 2 ) {
+        sum += ( (uint16_t) (buffer[ offset ] << 8) | 
+                 (uint16_t) (buffer[ offset + 1 ]) );
+    }
+
+    // Adds accumulated carries from high-order bits.
+    while ( sum >> 16 ) {
+        sum = ( sum & 0xFFFF ) + ( sum >> 16 );
+    }
+
+    return ~sum & 0xFFFF;
+}
