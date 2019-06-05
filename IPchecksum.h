@@ -4,6 +4,7 @@
 int    processArgs();
 int    defaultSum();
 int    linuxSum();
+int    deferredCarries();
 FILE * openFile();
 void   usage();
 
