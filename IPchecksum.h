@@ -5,6 +5,7 @@ int    processArgs();
 int    defaultSum();
 int    linuxSum();
 int    deferredCarries();
+int    loopUnwinding();
 FILE * openFile();
 void   usage();
 void   testAll();
@@ -15,12 +16,14 @@ void   testAll();
 const char * STRATEGIES[] = { 
     "End-around carries", 
     "Linux kernel implementation", 
-    "Deferred carries" 
+    "Deferred carries",
+    "Loop Unwinding"
 } ; 
 // Terse details about command-line options.
-const char * USAGE = "USAGE: \"./IPchecksum [-h] [-l] [-s checksum strategy] INPUT_FILE\"";
+const char * USAGE = "USAGE: \"./IPchecksum [-h] [-l] [-s checksum_strategy] INPUT_FILE\"";
 // Verbose details about command-line options.
-const char * HELP  = "\t-h: help\n"
+const char * HELP  = "\t-a: test all strategies\n"
+                     "\t-h: help\n"
                      "\t-l: list checksum strategies\n"
                      "\t-s: specify checksum strategy\n";
 

@@ -17,8 +17,8 @@
 */
 
 // Array of function pointers. Stores the implemented checksum strategies.
-int ( * strategies[ 3 ] ) ( unsigned char * buffer, int fileSize ) = 
-    { &defaultSum, &linuxSum, &deferredCarries };
+int ( * strategies[ 4 ] ) ( unsigned char * buffer, int fileSize ) = 
+    { &defaultSum, &linuxSum, &deferredCarries, &loopUnwinding };
 
 // Number of currently implemented checksumming strategies. 
 int NUM_STRATEGIES = sizeof( strategies ) / sizeof( strategies[ 0 ] );
@@ -80,8 +80,9 @@ int main( int argc, char * argv[] ) {
     double elapsedTime = ( endTime - startTime ) / ( double ) CLOCKS_PER_SEC;
 
     // Prints calculated checksum. 
-    printf( "Checksum\n\tDec: %5d\n\tHex: %5X\n", checksum, checksum );
-    printf( "Elapsed Time: %.4f\n", elapsedTime );
+    printf( "Dec:\t%-5d\n", checksum );
+    printf( "Hex:\t%-5X\n", checksum );
+    printf( "Time:\t%.6f\n", elapsedTime );
 
 
     free( buffer );
@@ -192,7 +193,6 @@ int defaultSum( unsigned char * buffer, int bufferSize ) {
     // Calculates the checksum
     unsigned int result;
     for ( int offset = 0; offset <= bufferSize ; offset += 2) {
-        // TODO simplify this
         uint16_t currentWord = ( (uint16_t) (buffer[ offset ] << 8) | 
                                  (uint16_t) (buffer[ offset + 1 ]) );
         result = currentWord + checksum;
@@ -300,8 +300,104 @@ int deferredCarries( unsigned char * buffer, int bufferSize ) {
 }
 
 /**
+    Unwinds the main checksum loop such that (BYTES_PER_LOOP / 2) additions 
+    are made for each iteration.
+
+    First the buffer is extended to a multiple of BYTES_PER_LOOP.
+    The buffer is then extended using realloc() to the new buffer size.
+    The new bytes in the buffer are all initialized to 0.
+
+    NOTES:
+    - Setting BYTES_PER_LOOP to 2 is equivalent to the default behavior.
+    - realloc() will attempt to extend a block of memory to the specified size.
+      If this isn't possible, it will allocate a new block and copy over the
+      contents of the old block. If this happens, a message is printed. The 
+      tests should be rerun if you see this message.
+
+    @param  buffer     Data to compute checksum of.
+    @param  bufferSize Number of bytes in "buffer"
+    @return The calculated checksum
+*/
+int loopUnwinding( unsigned char * buffer, int bufferSize ) {
+    // Increase this and add additions in the loop below for improved efficiency.
+    // The number of words added per loop is BYTES_PER_LOOP / 2.
+    short BYTES_PER_LOOP = 16;
+
+    // Increase the buffer size to be a multiple of BYTES_PER_LOOP.
+    int bytesToMultiple = 0;
+    if ( bufferSize % BYTES_PER_LOOP ) {
+        // Bytes needed to add to round bufferSize up to a multiple 
+        // of BYTES_PER_LOOP.
+        int bytesToMultiple = BYTES_PER_LOOP - ( bufferSize % BYTES_PER_LOOP );
+    
+        bufferSize += bytesToMultiple;
+    }
+
+    // Stores the current pointer of the buffer for comparison after realloc().
+    // If it changes, then realloc() has allocated a new block (costly!).
+    unsigned char * origLocation = buffer;
+
+    // Extend the buffer to new size.
+    buffer = ( unsigned char * ) realloc( buffer, bufferSize );
+    memset( buffer + bufferSize - bytesToMultiple, 0, bytesToMultiple );
+
+    // If the realloc() call allocated a new block instead of extending 
+    // the old one, we print to the user, but continue as normal. 
+    //if ( origLocation != buffer )
+    if( origLocation != buffer )
+        printf( "\nrealloc() moved buffer! This test run should be ignored!\n"
+                "See IPchecksum.loopUnwinding() for more information.\n\n");
+    
+    register int sum = 0;
+
+    for ( int offset = 0; offset < bufferSize; offset += BYTES_PER_LOOP ) {
+        // One's complement addition: 1st word
+        sum += ( (uint16_t) (buffer[ offset ] << 8) | 
+                 (uint16_t) (buffer[ offset + 1 ]) );
+
+        // One's complement addition: 2nd word
+        sum += ( (uint16_t) (buffer[ offset + 2 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 3 ]) );
+
+        // One's complement addition: 3rd word
+        sum += ( (uint16_t) (buffer[ offset + 4 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 5 ]) );
+
+        // One's complement addition: 4th word
+        sum += ( (uint16_t) (buffer[ offset + 6 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 7 ]) );
+
+        // One's complement addition: 5th word
+        sum += ( (uint16_t) (buffer[ offset + 8 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 9 ]) );
+
+        // One's complement addition: 6th word
+        sum += ( (uint16_t) (buffer[ offset + 10 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 11 ]) );
+
+        // One's complement addition: 7th word
+        sum += ( (uint16_t) (buffer[ offset + 12 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 13 ]) );
+
+        // One's complement addition: 8th word
+        sum += ( (uint16_t) (buffer[ offset + 14 ] << 8) | 
+                 (uint16_t) (buffer[ offset + 15 ]) );
+
+        sum = ( sum & 0xFFFF ) + ( sum >> 16 );
+    }
+
+    return ~sum & 0xFFFF;
 
 
+}
+
+
+/**
+    Tests all implemented strategies and prints a table for comparison.
+    After printing the table, the program exits.
+
+    @param  buffer     Data to compute checksum of.
+    @param  bufferSize Number of bytes in "buffer"
 */
 void testAll( unsigned char * buffer, int bufferSize ) {
     // Prints table header.
@@ -324,7 +420,7 @@ void testAll( unsigned char * buffer, int bufferSize ) {
         }
 
         // Prints current strategy's results.
-        printf( "%-35s%.4f\n", STRATEGIES[ stratIdx ], totalElapsedTime / NUM_TEST_RUNS );
+        printf( "%-35s%.6f\n", STRATEGIES[ stratIdx ], totalElapsedTime / NUM_TEST_RUNS );
     }
 
     exit( 0 );

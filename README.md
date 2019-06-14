@@ -12,11 +12,14 @@ to reveal effects on runtime.
 The following strategies for computation are implemented:
 0. Default Implementation
 1. Deferred Carries
-2. Unwinding Loops
-3. Combine with Data Copying
-4. Incremental Update
-5. Map Reduce (multi-threaded - 2A)
-6. Multi-Word Parallel Addition (2C)
+2. Linux Reference (lib/checksum.c)
+3. Unwinding Loops
+
+The following could be implemented in the future.
+4. Combine with Data Copying
+5. Incremental Update
+6. Map Reduce (multi-threaded - 2A)
+7. Multi-Word Parallel Addition (2C)
 
 The strategies used are recommended in RFC 1071(https://tools.ietf.org/html/rfc1071).
 
