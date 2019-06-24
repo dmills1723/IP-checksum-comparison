@@ -1,0 +1,4 @@
+small_file.txt:75F5
+small_file_odd.txt:CB3D
+medium_file.txt:B611
+large_file.txt:6238
