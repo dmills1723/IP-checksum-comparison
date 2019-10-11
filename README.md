@@ -27,16 +27,16 @@ These strategies are recommended in [RFC 1071](https://tools.ietf.org/html/rfc10
 
 To list checksum strategies:
 
-```./IPChecksum -l```
+```./IPchecksum -l```
         
 To print help info: 
 
-```./IPChecksum -h```
+```./IPchecksum -h```
         
 To calculate checksum with the default strategy:
 
-```./IPChecksum -s 0 input/file_small.txt```
+```./IPchecksum -s 0 input/file_small.txt```
         
 To run a test of all implemented strategies (if you're just passing through, this is what you should run):
 
-```./IPChecksum -a input/file_medium.txt```
+```./IPchecksum -a input/file_medium.txt```
