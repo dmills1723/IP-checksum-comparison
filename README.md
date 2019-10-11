@@ -1,5 +1,5 @@
 # IP-checksums-C-v-Python
-Calculating the IP checksum as defined in RFC1071 
+Calculating the IP checksum as defined in [RFC 1071](https://tools.ietf.org/html/rfc1071)
 
 The "Internet checksum" is a checksum algorithm used in TCP, IP, and UDP
 to ensure reliable data transfer (no bit errors!). It is defined as the
@@ -15,23 +15,28 @@ The following strategies for computation are implemented:
 2. Linux Reference (lib/checksum.c)
 3. Unwinding Loops
 
-The following could be implemented in the future.
-4. Combine with Data Copying
-5. Incremental Update
-6. Map Reduce (multi-threaded - 2A)
-7. Multi-Word Parallel Addition (2C)
+The following strategies might be implemented in the future:
+- Combine with Data Copying
+- Incremental Update
+- Map Reduce (multi-threaded - 2A)
+- Multi-Word Parallel Addition (2C)
 
-The strategies used are recommended in RFC 1071(https://tools.ietf.org/html/rfc1071).
+These strategies are recommended in [RFC 1071](https://tools.ietf.org/html/rfc1071).
 
 **Example usage:**
 
 To list checksum strategies:
-        `./IPChecksum -l`
+
+```./IPChecksum -l```
         
 To print help info: 
-        `./IPChecksum -h`
+
+```./IPChecksum -h```
         
 To calculate checksum with the default strategy:
-        `./IPChecksum -s 0 input/file_small.txt`
-        
 
+```./IPChecksum -s 0 input/file_small.txt```
+        
+To run a test of all implemented strategies (if you're just passing through, this is what you should run):
+
+```./IPChecksum -a input/file_medium.txt```
