@@ -1,4 +1,4 @@
-# IP-checksums-C-v-Python
+# IP-checksum-comparison
 Calculating the IP checksum as defined in [RFC 1071](https://tools.ietf.org/html/rfc1071)
 
 The "Internet checksum" is a checksum algorithm used in TCP, IP, and UDP
